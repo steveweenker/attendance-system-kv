@@ -2288,15 +2288,15 @@
         let currentUser = null;
         // vercel
         // ===================== VERCEL KV SYNC =====================
-        const VERCEL_URL = window.location.origin; // Your deployed URL
+        // Replace this whole section at the beginning of your cloud sync code:
+        const VERCEL_URL = "https://attendance-system-kv.vercel.app";
         let deviceId = localStorage.getItem('attendance_device_id') || generateDeviceId();
-        let syncInProgress = false;
 
         function generateDeviceId() {
             const id = 'device_' + Date.now() + '_' + Math.random().toString(36).slice(2, 10);
             localStorage.setItem('attendance_device_id', id);
             return id;
-        }
+}
 
         // Save data to Vercel KV
         async function saveToKV() {
