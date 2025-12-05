@@ -2,12 +2,9 @@ import { kv } from '@vercel/kv';
 
 export async function GET() {
   try {
-    // Check if KV is connected
-    await kv.ping();
-    
-    // Get some stats
-    const devices = await kv.keys('devices:*');
-    const syncs = await kv.keys('syncs:*');
+    // count connected devices
+    const devices = await kv.keys('device:*');
+    const syncs = await kv.keys('sync:*');
     
     return Response.json({
       online: true,
