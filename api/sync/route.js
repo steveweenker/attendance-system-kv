@@ -6,7 +6,7 @@ export async function POST(request) {
     const { deviceId, collections } = data;
     
     // Generate sync ID
-    const syncId = `sync_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const syncId = `sync_${Date.now()}_${Math.random().toString(36).substring(2, 10)}`;
     
     // Save each collection
     for (const [collectionName, items] of Object.entries(collections)) {
@@ -14,16 +14,16 @@ export async function POST(request) {
     }
     
     // Save sync metadata
-    await kv.set(`syncs:${syncId}`, {
+    await kv.set(`sync:${syncId}`, {
       deviceId,
       timestamp: new Date().toISOString(),
       collections: Object.keys(collections)
     });
     
     // Update device info
-    await kv.set(`devices:${deviceId}`, {
+    await kv.set(`device:${deviceId}`, {
       lastSync: new Date().toISOString(),
-      userAgent: request.headers.get('user-agent') || 'unknown'
+      userAgent: request.headers.get("user-agent") || 'unknown'
     });
     
     return Response.json({
