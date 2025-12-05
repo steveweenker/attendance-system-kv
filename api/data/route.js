@@ -2,19 +2,19 @@ import { kv } from '@vercel/kv';
 
 export async function GET() {
   try {
-    // Collections to fetch
+    // collections to fetch
     const collections = ['students', 'faculty', 'classes', 'attendance', 'years', 'settings'];
     const data = {};
     
-    // Fetch all collections in parallel
+    // fetch all collections in parallel
     for (const collection of collections) {
-      const items = await kv.get(`${collection}:latest`);
-      data[collection] = items ? JSON.parse(items) : [];
+      const raw = await kv.get(`${collection}:latest`);
+      data[collection] = raw ? JSON.parse(raw) : [];
     }
     
     // Get sync stats
-    const devices = await kv.keys('devices:*');
-    const syncs = await kv.keys('syncs:*');
+    const devices = await kv.keys('device:*');
+    const syncs = await kv.keys('sync:*');
     
     return Response.json({
       success: true,
@@ -30,7 +30,7 @@ export async function GET() {
     return Response.json({
       success: false,
       data: {
-        students: [], faculty: [], classes: [], 
+        students: [], faculty: [], classes: [],
         attendance: [], years: [], settings: []
       },
       error: error.message
