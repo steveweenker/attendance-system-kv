@@ -2288,66 +2288,142 @@
         let currentUser = null;
         // vercel
         // ===================== VERCEL KV SYNC =====================
-        const VERCEL_URL = window.location.origin; // Your deployed URL
-        let deviceId = localStorage.getItem('attendance_device_id') || generateDeviceId();
-        let syncInProgress = false;
+        // ===================== VERCEL KV SYNC =====================
+        // Dynamic URL detection with fallback
+        function getVercelURL() {
+            // Get current origin
+            const currentOrigin = window.location.origin;
 
-        function generateDeviceId() {
-            const id = 'device_' + Date.now() + '_' + Math.random().toString(36).slice(2, 10);
-            localStorage.setItem('attendance_device_id', id);
-            return id;
+            // If we're on the correct domain, use it
+            if (currentOrigin.includes('vercel.app')) {
+                return currentOrigin;
+            }
+
+            // If we're on localhost, test both possible domains
+            if (currentOrigin.includes('localhost') || currentOrigin.includes('127.0.0.1')) {
+                // Test which domain works
+                return 'https://attendance-system-kv.vercel.app'; // Default to your actual domain
+            }
+
+            // Fallback: use current origin
+            return currentOrigin;
+        }
+
+        const VERCEL_URL = getVercelURL();
+        console.log('Using Vercel URL:', VERCEL_URL);
+
+        let deviceId = localStorage.getItem('attendance_device_id') || generateDeviceId();
+
+        // Test the API endpoint on load
+        async function testAPIEndpoint() {
+            try {
+                console.log('Testing API connection to:', VERCEL_URL);
+                const response = await fetch(`${VERCEL_URL}/api/status`, {
+                    method: 'GET',
+                    headers: { 'Accept': 'application/json' }
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    console.log('✅ API Connection successful:', data);
+                    return true;
+                } else {
+                    console.warn('⚠️ API returned status:', response.status);
+                    return false;
+                }
+            } catch (error) {
+                console.error('❌ API Connection failed:', error.message);
+                return false;
+            }
         }
 
         // Save data to Vercel KV
-        async function saveToKV() {
-            if (syncInProgress) {
-                showToast('🔄 Sync in progress...', 'info');
-                return;
-            }
+        function updateSyncStatus(connected, syncId = null) {
+            const indicator = document.querySelector('.offline-indicator');
+            if (!indicator) return;
 
-            syncInProgress = true;
-            showToast('💾 Saving to cloud...', 'info');
+            if (connected) {
+                indicator.innerHTML = '✅ Cloud Sync Active';
+                indicator.style.background = 'rgba(39, 174, 96, 0.1)';
+                indicator.style.color = 'var(--color-success)';
+                indicator.title = `Last sync: ${syncId || 'Just now'}`;
+            } else {
+                indicator.innerHTML = `⚠️ Offline (${VERCEL_URL.replace('https://', '')})`;
+                indicator.style.background = 'rgba(243, 156, 18, 0.1)';
+                indicator.style.color = 'var(--color-warning)';
+                indicator.title = 'Click to retry sync';
 
-            try {
-                // Get all local data
-                const [students, faculty, classes, attendance, years, settings] = await Promise.all([
-                    getAll('students'),
-                    getAll('faculty'),
-                    getAll('classes'),
-                    getAll('attendance'),
-                    getAll('years'),
-                    getAll('settings')
-                ]);
-
-                const collections = {
-                    students, faculty, classes, attendance, years, settings
-                };
-
-                // Send to Vercel KV
-                const response = await fetch(`${VERCEL_URL}/api/sync`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ deviceId, collections })
-                });
-
-                const result = await response.json();
-
-                if (result.success) {
-                    showToast(`✅ ${result.message}`, 'success');
-                    updateSyncStatus(true, result.syncId);
-                } else {
-                    throw new Error(result.error || 'Sync failed');
-                }
-
-            } catch (error) {
-                console.error('Save error:', error);
-                showToast(`❌ Save failed: ${error.message}`, 'error');
-                updateSyncStatus(false);
-            } finally {
-                syncInProgress = false;
+                // Make it clickable to retry
+                indicator.style.cursor = 'pointer';
+                indicator.onclick = () => saveToKV();
             }
         }
 
+        syncInProgress = true;
+        showToast('💾 Saving to cloud...', 'info');
+
+        try {
+            // Get all local data
+            const [students, faculty, classes, attendance, years, settings] = await Promise.all([
+                getAll('students'),
+                getAll('faculty'),
+                getAll('classes'),
+                getAll('attendance'),
+                getAll('years'),
+                getAll('settings')
+            ]);
+
+            const collections = {
+                students, faculty, classes, attendance, years, settings
+            };
+
+            // Double-check URL
+            const apiUrl = `${VERCEL_URL}/api/sync`;
+            console.log('Attempting sync to:', apiUrl);
+
+            // Validate URL
+            if (!apiUrl.startsWith('http')) {
+                throw new Error(`Invalid API URL: ${apiUrl}`);
+            }
+
+            const response = await fetch(apiUrl, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json'
+                },
+                body: JSON.stringify({ deviceId, collections })
+            });
+
+            // Check if response is JSON
+            const contentType = response.headers.get('content-type');
+            if (!contentType || !contentType.includes('application/json')) {
+                const text = await response.text();
+                console.error('Non-JSON response received:', text.substring(0, 200));
+                throw new Error(`Server returned non-JSON (status: ${response.status})`);
+            }
+
+            const result = await response.json();
+
+            if (!response.ok) {
+                throw new Error(`API error: ${result.error || response.statusText}`);
+            }
+
+            if (result.success) {
+                showToast(`✅ ${result.message}`, 'success');
+                updateSyncStatus(true, result.syncId);
+            } else {
+                throw new Error(result.error || 'Sync failed');
+            }
+
+        } catch (error) {
+            console.error('Save error:', error);
+            showToast(`❌ Save failed: ${error.message}`, 'error');
+            updateSyncStatus(false);
+        } finally {
+            syncInProgress = false;
+        }
+        }
         // Load data from Vercel KV
         async function loadFromKV() {
             showToast('📥 Loading from cloud...', 'info');
@@ -2453,10 +2529,16 @@
                 indicator.innerHTML = '✅ Cloud Sync Active';
                 indicator.style.background = 'rgba(39, 174, 96, 0.1)';
                 indicator.style.color = 'var(--color-success)';
+                indicator.title = `Last sync: ${syncId || 'Just now'}`;
             } else {
-                indicator.innerHTML = '⚠️ Working Offline';
+                indicator.innerHTML = `⚠️ Offline (${VERCEL_URL.replace('https://', '')})`;
                 indicator.style.background = 'rgba(243, 156, 18, 0.1)';
                 indicator.style.color = 'var(--color-warning)';
+                indicator.title = 'Click to retry sync';
+
+                // Make it clickable to retry
+                indicator.style.cursor = 'pointer';
+                indicator.onclick = () => saveToKV();
             }
         }
 
@@ -2482,8 +2564,10 @@
             💾 Save Cloud
         </button>
         <div style="font-size: 11px; color: #666; background: #f0f0f0; 
-              padding: 2px 6px; border-radius: 3px;">
-            ${deviceId.substring(0, 8)}...
+              padding: 2px 6px; border-radius: 3px; cursor: pointer;"
+              onclick="testAPIEndpoint()"
+              title="Test API Connection">
+            ${VERCEL_URL.replace('https://', '').substring(0, 15)}...
         </div>
     `;
 
@@ -2500,15 +2584,16 @@
         }
 
         // Initialize on page load
+        // Initialize on page load
         document.addEventListener('DOMContentLoaded', async () => {
             // Wait for everything to load
             setTimeout(async () => {
+                // Test API connection
+                const isConnected = await testAPIEndpoint();
+                updateSyncStatus(isConnected);
+
                 // Add sync UI
                 addKVSyncUI();
-
-                // Check connection
-                const isConnected = await checkKVStatus();
-                updateSyncStatus(isConnected);
 
                 // Auto-load on first connection
                 if (isConnected) {
@@ -5255,6 +5340,35 @@
             await loadYears();
             await updateDashboard();
         })();
+        // ===================== DEBUG HELPER =====================
+        function debugURLs() {
+            console.log('=== URL Debug Info ===');
+            console.log('window.location.href:', window.location.href);
+            console.log('window.location.origin:', window.location.origin);
+            console.log('window.location.hostname:', window.location.hostname);
+            console.log('VERCEL_URL constant:', VERCEL_URL);
+            console.log('Device ID:', deviceId);
+            console.log('=== End Debug ===');
+
+            // Test all possible URLs
+            const testUrls = [
+                'https://attendance-system-kv.vercel.app/api/status',
+                'https://attendance-system-ku.vercel.app/api/status',
+                `${window.location.origin}/api/status`
+            ];
+
+            testUrls.forEach(url => {
+                console.log(`Testing: ${url}`);
+                fetch(url).then(r => {
+                    console.log(`  ${url}: ${r.status}`);
+                }).catch(e => {
+                    console.log(`  ${url}: ERROR - ${e.message}`);
+                });
+            });
+        }
+
+        // Uncomment to debug
+        // debugURLs();
     </script>
 </body>
 
